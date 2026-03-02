@@ -1,0 +1,30 @@
+#pragma once
+
+// ── WiFi ──────────────────────────────────────────────────────────────────────
+#define WIFI_SSID     "your-wifi-ssid"
+#define WIFI_PASSWORD "your-wifi-password"
+
+// ── 云端服务地址（不含末尾斜杠）──────────────────────────────────────────────
+#define SERVER_URL    "https://your-server-domain/milk"
+
+// ── 设备认证（与服务端 .env DEVICE_SECRET 一致）───────────────────────────────
+#define DEVICE_ID     "m5stack-01"
+#define DEVICE_SECRET "your-device-secret"
+
+// ── Chain DualKey 按键引脚（官方文档）────────────────────────────────────────
+// Key1：远离挂绳孔的键  Key2：靠近挂绳孔的键
+#define PIN_KEY1  0
+#define PIN_KEY2  17
+
+// ── Chain DualKey RGB LED（官方文档）────────────────────────────────────────
+// LED_PWR_PIN 必须 OUTPUT HIGH 才能给 LED 供电
+#define LED_PWR_PIN  40
+#define LED_SIG_PIN  21
+#define NUM_LEDS     2
+
+// ── 编译要求 ──────────────────────────────────────────────────────────────────
+// 开发板: M5ChainDualKey（M5Stack 板管理 >= 3.2.4）
+// 依赖库:
+//   - M5Unified >= 0.2.11
+//   - ArduinoJson >= 7.x (by Benoit Blanchon)
+//   - Adafruit NeoPixel >= 1.15.2

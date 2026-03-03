@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Milk-Link 管理后台</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- NOTE: add integrity="sha384-…" crossorigin="anonymous" attributes for production deployments -->
+  <style>
+    body { background: #f4f6f9; }
+    .navbar-brand { font-weight: 700; letter-spacing: .5px; }
+    .stat-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    .stat-card .stat-icon { font-size: 2.2rem; opacity: .85; }
+    .stat-card .stat-val  { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+    .stat-card .stat-lbl  { font-size: .78rem; color: #6c757d; margin-top: 2px; }
+    .badge-online  { background: #198754; }
+    .badge-offline { background: #6c757d; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    .card-header { background: transparent; border-bottom: 1px solid rgba(0,0,0,.06);
+                   font-weight: 600; padding: .8rem 1.2rem; }
+    .table th { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em;
+                color: #6c757d; border-top: none; }
+    .table td { font-size: .9rem; vertical-align: middle; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .dot-on  { background: #198754; box-shadow: 0 0 5px #19875480; }
+    .dot-off { background: #adb5bd; }
+    #spinner { display: none; }
+    .type-milk  { color: #0d6efd; }
+    .type-solid { color: #fd7e14; }
+    @media (max-width: 576px) {
+      .stat-card .stat-val { font-size: 1.5rem; }
+      .stat-card .stat-icon { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ── -->
+<nav class="navbar navbar-dark" style="background:#1a56db;">
+  <div class="container-fluid">
+    <span class="navbar-brand"><i class="bi bi-droplet-half me-2"></i>Milk-Link 管理后台</span>
+    <div class="d-flex align-items-center gap-2">
+      <span id="spinner" class="spinner-border spinner-border-sm text-white" role="status"></span>
+      <small id="last-updated" class="text-white opacity-75"></small>
+      <button class="btn btn-sm btn-outline-light" onclick="loadAll()">
+        <i class="bi bi-arrow-clockwise"></i> 刷新
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid py-3 px-3 px-lg-4">
+
+  <!-- ── Error banner ── -->
+  <div id="error-banner" class="alert alert-danger d-none" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    <span id="error-text"></span>
+  </div>
+
+  <!-- ── Summary cards ── -->
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100 p-3 d-flex flex-row align-items-center gap-3">
+        <div class="stat-icon text-primary"><i class="bi bi-cup-hot-fill"></i></div>
+        <div>
+          <div class="stat-val" id="sc-count">—</div>
+          <div class="stat-lbl">今日喂奶次数</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100 p-3 d-flex flex-row align-items-center gap-3">
+        <div class="stat-icon text-success"><i class="bi bi-droplet-fill"></i></div>
+        <div>
+          <div class="stat-val" id="sc-ml">—</div>
+          <div class="stat-lbl">今日总量 (ml)</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100 p-3 d-flex flex-row align-items-center gap-3">
+        <div class="stat-icon text-warning"><i class="bi bi-cpu-fill"></i></div>
+        <div>
+          <div class="stat-val" id="sc-devices">—</div>
+          <div class="stat-lbl">设备在线</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card h-100 p-3 d-flex flex-row align-items-center gap-3">
+        <div class="stat-icon text-danger"><i class="bi bi-clock-history"></i></div>
+        <div>
+          <div class="stat-val" id="sc-last" style="font-size:1.2rem;">—</div>
+          <div class="stat-lbl">最后喂奶时间</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Devices + Chart ── -->
+  <div class="row g-3 mb-3">
+
+    <!-- Device status -->
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-hdd-network me-1"></i>设备状态</span>
+          <span class="badge bg-secondary" id="device-count-badge">0 台</span>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-hover mb-0" id="device-table">
+            <thead class="table-light">
+              <tr>
+                <th class="ps-3">设备</th>
+                <th>状态</th>
+                <th>今日</th>
+                <th>最后记录</th>
+              </tr>
+            </thead>
+            <tbody id="device-tbody">
+              <tr><td colspan="4" class="text-center text-muted py-3">加载中…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7-day chart -->
+    <div class="col-lg-8">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-bar-chart-fill me-1"></i>近 7 日喂奶趋势</span>
+          <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary active" id="chart-btn-7"  onclick="switchDays(7)">7天</button>
+            <button type="button" class="btn btn-outline-secondary"        id="chart-btn-14" onclick="switchDays(14)">14天</button>
+            <button type="button" class="btn btn-outline-secondary"        id="chart-btn-30" onclick="switchDays(30)">30天</button>
+          </div>
+        </div>
+        <div class="card-body" style="position:relative;min-height:220px;">
+          <canvas id="daily-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Recent records ── -->
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-list-ul me-1"></i>最近记录（最多 50 条）</span>
+      <span class="text-muted" style="font-size:.82rem;" id="record-count-label"></span>
+    </div>
+    <div class="card-body p-0" style="overflow-x:auto;">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">#</th>
+            <th>时间</th>
+            <th>设备</th>
+            <th>类型</th>
+            <th>奶量</th>
+            <th>时段</th>
+          </tr>
+        </thead>
+        <tbody id="records-tbody">
+          <tr><td colspan="6" class="text-center text-muted py-3">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- NOTE: add integrity="sha384-…" crossorigin="anonymous" attributes for production deployments -->
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let dailyChart = null;
+let currentDays = 7;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+}
+function fmtTimeShort(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function timeSince(iso) {
+  if (!iso) return null;
+  // Append 'Z' only if the string has no timezone offset (naive UTC from server)
+  const isoUtc = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
+  const sec = Math.floor((Date.now() - new Date(isoUtc)) / 1000);
+  if (sec < 60)   return sec + ' 秒前';
+  if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
+  if (sec < 86400)return Math.floor(sec / 3600) + ' 小时前';
+  return Math.floor(sec / 86400) + ' 天前';
+}
+function setText(id, v) { document.getElementById(id).textContent = v; }
+function setHTML(id, v) { document.getElementById(id).innerHTML = v; }
+
+// ── Error handling ───────────────────────────────────────────────────────────
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  document.getElementById('error-text').textContent = msg;
+  el.classList.remove('d-none');
+}
+function hideError() {
+  document.getElementById('error-banner').classList.add('d-none');
+}
+
+// ── Overview ─────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  const r = await fetch('/admin/api/overview');
+  if (!r.ok) throw new Error(`overview: HTTP ${r.status}`);
+  const data = await r.json();
+
+  // Summary cards
+  setText('sc-count', data.today_count);
+  setText('sc-ml', data.today_total_ml);
+
+  const online = data.devices.filter(d => d.online).length;
+  setText('sc-devices', `${online} / ${data.devices.length}`);
+
+  // Last feeding time from recent records
+  const milkRec = (data.recent_records || []).find(r => r.record_type === 'milk');
+  setText('sc-last', milkRec ? fmtTimeShort(milkRec.fed_at) : '—');
+
+  // Device table
+  renderDevices(data.devices);
+
+  // Recent records
+  renderRecords(data.recent_records || []);
+}
+
+// ── Device table ──────────────────────────────────────────────────────────────
+function renderDevices(devices) {
+  setText('device-count-badge', devices.length + ' 台');
+  const tbody = document.getElementById('device-tbody');
+  if (!devices.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">暂无设备</td></tr>';
+    return;
+  }
+  tbody.innerHTML = devices.map(d => {
+    const dot = d.online
+      ? '<span class="dot dot-on me-1" title="在线"></span>'
+      : '<span class="dot dot-off me-1" title="离线"></span>';
+    const badge = d.online
+      ? '<span class="badge badge-online rounded-pill">在线</span>'
+      : '<span class="badge badge-offline rounded-pill">离线</span>';
+    const lastRec = d.last_record_at ? timeSince(d.last_record_at) : '—';
+    const todayInfo = d.today_count > 0
+      ? `${d.today_count}次 / ${d.today_total_ml}ml`
+      : '—';
+    return `<tr>
+      <td class="ps-3 fw-semibold">${escHtml(d.device_id)}</td>
+      <td>${dot}${badge}</td>
+      <td><small>${todayInfo}</small></td>
+      <td><small class="text-muted">${lastRec}</small></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Records table ─────────────────────────────────────────────────────────────
+function renderRecords(records) {
+  document.getElementById('record-count-label').textContent = `共 ${records.length} 条`;
+  const tbody = document.getElementById('records-tbody');
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">暂无记录</td></tr>';
+    return;
+  }
+  tbody.innerHTML = records.map((r, i) => {
+    const typeHtml = r.record_type === 'milk'
+      ? '<span class="type-milk"><i class="bi bi-cup-hot-fill"></i> 喂奶</span>'
+      : '<span class="type-solid"><i class="bi bi-bowl-hot-fill"></i> 辅食</span>';
+    const period = r.period === 'night' ? '🌙 夜间' : '☀️ 日间';
+    const ml = r.amount_ml > 0 ? `<strong>${r.amount_ml}</strong> ml` : '<span class="text-muted">—</span>';
+    const rowClass = r.period === 'night' ? 'table-light' : '';
+    return `<tr class="${rowClass}">
+      <td class="ps-3 text-muted">${r.id}</td>
+      <td>${fmtTime(r.fed_at)}</td>
+      <td><code>${escHtml(r.device_id)}</code></td>
+      <td>${typeHtml}</td>
+      <td>${ml}</td>
+      <td><small>${period}</small></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Daily chart ───────────────────────────────────────────────────────────────
+async function loadDailyStats(days) {
+  const r = await fetch(`/admin/api/stats/daily?days=${days}`);
+  if (!r.ok) throw new Error(`daily stats: HTTP ${r.status}`);
+  const data = await r.json();
+  renderChart(data);
+}
+
+function renderChart(data) {
+  const labels = data.map(d => d.date.slice(5));   // MM-DD
+  const counts  = data.map(d => d.count);
+  const totals  = data.map(d => d.total_ml);
+
+  const ctx = document.getElementById('daily-chart').getContext('2d');
+  if (dailyChart) dailyChart.destroy();
+
+  dailyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '次数',
+          data: counts,
+          backgroundColor: 'rgba(13,110,253,.75)',
+          borderRadius: 5,
+          yAxisID: 'yCount',
+          order: 2,
+        },
+        {
+          label: '总量 (ml)',
+          data: totals,
+          type: 'line',
+          borderColor: '#198754',
+          backgroundColor: 'rgba(25,135,84,.12)',
+          tension: .35,
+          pointRadius: 4,
+          fill: true,
+          yAxisID: 'yMl',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label === '总量 (ml)'
+              ? ` ${ctx.raw} ml`
+              : ` ${ctx.raw} 次`,
+          },
+        },
+      },
+      scales: {
+        yCount: {
+          type: 'linear', position: 'left',
+          beginAtZero: true, ticks: { stepSize: 1 },
+          title: { display: true, text: '次数', color: '#0d6efd' },
+          grid: { color: 'rgba(0,0,0,.04)' },
+        },
+        yMl: {
+          type: 'linear', position: 'right',
+          beginAtZero: true,
+          title: { display: true, text: 'ml', color: '#198754' },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+// ── Day-range switcher ───────────────────────────────────────────────────────
+function switchDays(days) {
+  currentDays = days;
+  [7, 14, 30].forEach(d => {
+    document.getElementById(`chart-btn-${d}`).classList.toggle('active', d === days);
+  });
+  loadDailyStats(days).catch(err => showError(err.message));
+}
+
+// ── XSS helper ───────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Main load ────────────────────────────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('spinner').style.display = 'inline-block';
+  hideError();
+  try {
+    await Promise.all([
+      loadOverview(),
+      loadDailyStats(currentDays),
+    ]);
+    setText('last-updated', '更新：' + new Date().toLocaleTimeString('zh-CN'));
+  } catch (err) {
+    showError('数据加载失败：' + err.message);
+  } finally {
+    document.getElementById('spinner').style.display = 'none';
+  }
+}
+
+// Initial load + auto-refresh every 30 s
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

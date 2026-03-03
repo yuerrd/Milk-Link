@@ -51,7 +51,25 @@ class DuplicateResponse(BaseModel):
     wait_seconds: int       # 还需等待多少秒
 
 
-class TodayStats(BaseModel):
+class DeviceStatus(BaseModel):
+    device_id: str
+    online: bool                        # MQTT 最近 5 分钟内有消息 = 在线
+    last_seen: Optional[datetime]       # 最后 MQTT 消息时间（UTC，内存中）
+    last_record_at: Optional[datetime]  # 最后数据库记录时间
+    last_record_type: Optional[RecordType]
+    today_count: int                    # 今日喂奶次数
+    today_total_ml: int                 # 今日喂奶总量 ml
+
+
+class AdminOverview(BaseModel):
+    date: str
+    today_count: int
+    today_total_ml: int
+    devices: list[DeviceStatus]
+    recent_records: list[FeedingRecordOut]
+
+
+
     date: str               # YYYY-MM-DD
     count: int
     total_ml: int

@@ -1,15 +1,22 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Union
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine, get_db, Base
 from app.schemas import (
+    AdminOverview,
+    DeviceStatus,
+    DailySummary,
     DuplicateResponse,
     FeedRequest,
     FeedResponse,
@@ -190,3 +197,90 @@ async def trigger_monthly(db: SessionDep):
 @app.get("/health", summary="健康检查")
 async def health():
     return {"status": "ok"}
+
+
+# ── 管理后台 ───────────────────────────────────────────────────────────────────
+
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_page():
+    """管理后台主页"""
+    return FileResponse(os.path.join(_STATIC_DIR, "admin.html"))
+
+
+@app.get(
+    "/admin/api/overview",
+    response_model=AdminOverview,
+    summary="管理后台 — 综合概览",
+    include_in_schema=False,
+)
+async def admin_overview(db: SessionDep):
+    from zoneinfo import ZoneInfo
+
+    now_local = datetime.now(ZoneInfo(settings.timezone))
+    today_str = now_local.strftime("%Y-%m-%d")
+
+    # 今日喂奶汇总
+    today_records = await report_svc.get_today_records(db)
+    today_count = len(today_records)
+    today_total_ml = sum(r.amount_ml for r in today_records)
+
+    # 构建设备状态列表
+    device_ids_db = await report_svc.get_all_device_ids(db)
+    mqtt_registry = mqtt_svc.get_device_registry()
+    # 合并：DB 中出现的 + MQTT 中出现的
+    all_device_ids = sorted(set(device_ids_db) | set(mqtt_registry.keys()))
+
+    # Both now_utc and _device_last_seen values are naive UTC datetimes
+    # (DB stores naive UTC, mqtt.py stores datetime.now(timezone.utc).replace(tzinfo=None))
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    online_threshold = timedelta(minutes=5)
+
+    devices: list[DeviceStatus] = []
+    for dev_id in all_device_ids:
+        last_seen = mqtt_registry.get(dev_id)
+        online = last_seen is not None and (now_utc - last_seen) < online_threshold
+
+        last_rec = await report_svc.get_device_last_record(db, dev_id)
+        last_record_at = last_rec.fed_at if last_rec else None
+        last_record_type = last_rec.record_type if last_rec else None
+
+        dev_count, dev_total = await report_svc.get_today_device_stats(db, dev_id)
+        devices.append(DeviceStatus(
+            device_id=dev_id,
+            online=online,
+            last_seen=last_seen,
+            last_record_at=last_record_at,
+            last_record_type=last_record_type,
+            today_count=dev_count,
+            today_total_ml=dev_total,
+        ))
+
+    recent = await report_svc.get_recent_records(db, limit=50)
+
+    return AdminOverview(
+        date=today_str,
+        today_count=today_count,
+        today_total_ml=today_total_ml,
+        devices=devices,
+        recent_records=recent,
+    )
+
+
+@app.get(
+    "/admin/api/stats/daily",
+    response_model=list[DailySummary],
+    summary="管理后台 — 近 N 日每日统计",
+    include_in_schema=False,
+)
+async def admin_daily_stats(
+    db: SessionDep,
+    days: int = Query(default=7, ge=1, le=90),
+):
+    return await report_svc.get_daily_stats(db, days=days)
+
+
+# 挂载静态文件（CSS / JS 等，如有）
+app.mount("/admin/static", StaticFiles(directory=_STATIC_DIR), name="admin-static")

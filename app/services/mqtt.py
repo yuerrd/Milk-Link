@@ -11,6 +11,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 
 import aiomqtt
 
@@ -20,6 +21,15 @@ from app.schemas import DuplicateResponse
 from app.services import feeding as feeding_svc
 
 logger = logging.getLogger(__name__)
+
+# ── 设备在线注册表（内存中，进程重启后清空）──────────────────────────────────
+# key: device_id, value: UTC datetime of last authenticated MQTT message
+_device_last_seen: dict[str, datetime] = {}
+
+
+def get_device_registry() -> dict[str, datetime]:
+    """返回设备最后通信时间字典的快照（key=device_id, value=UTC datetime）。"""
+    return dict(_device_last_seen)
 
 
 async def _handle_feed(device_id: str, client: aiomqtt.Client) -> None:
@@ -124,6 +134,8 @@ async def mqtt_listener() -> None:
                         continue
 
                     logger.info("[MQTT] %s from %s", action, device_id)
+                    # Store as naive UTC for consistent comparison with DB timestamps
+                    _device_last_seen[device_id] = datetime.now(timezone.utc).replace(tzinfo=None)
 
                     if action == "feed":
                         task = asyncio.create_task(_handle_feed(device_id, client))

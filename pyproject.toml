@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
+    "aiomqtt>=2.5",
     "aiomysql>=0.2",
     "alembic>=1.13",
     "apscheduler>=3.10",

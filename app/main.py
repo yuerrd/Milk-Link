@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Annotated, Union
 
@@ -19,6 +20,7 @@ from app.schemas import (
     WeeklyReport,
 )
 from app.services import feeding as feeding_svc
+from app.services import mqtt as mqtt_svc
 from app.services import reports as report_svc
 from app.services import wechat as wechat_svc
 
@@ -62,7 +64,16 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
 
+    # 启动 MQTT 监听任务
+    mqtt_task = asyncio.create_task(mqtt_svc.mqtt_listener())
+
     yield
+
+    mqtt_task.cancel()
+    try:
+        await mqtt_task
+    except asyncio.CancelledError:
+        pass
 
     scheduler.shutdown(wait=False)
     await engine.dispose()

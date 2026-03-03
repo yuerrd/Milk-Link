@@ -1,4 +1,15 @@
 services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: milk-link-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
+
   app:
     image: milk-link:latest
     container_name: milk-link
@@ -6,6 +17,8 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    depends_on:
+      - mosquitto
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -13,3 +26,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:

@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # 调试模式：True 时跳过所有企业微信推送
     debug_no_push: bool = False
 
+    # MQTT Broker（设备通过 MQTT 上报喂奶事件）
+    mqtt_broker_host: str = "localhost"
+    mqtt_broker_port: int = 1883
+    mqtt_username: str = ""
+    mqtt_password: str = ""
+    mqtt_topic_prefix: str = "milk-link"
+
     @property
     def night_amount_ml(self) -> int:
         return 120

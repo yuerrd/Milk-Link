@@ -20,6 +20,9 @@ build/
 .env.*
 !.env.example
 
+# 固件配置（含敏感凭据，不提交到 git）
+firmware/m5stack/main/config.h
+
 # IDE
 .vscode/
 .idea/

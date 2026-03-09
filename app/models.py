@@ -17,6 +17,11 @@ class RecordType(str, enum.Enum):
     solid = "solid"   # 辅食
 
 
+class Unit(str, enum.Enum):
+    ml = "ml"
+    g = "g"
+
+
 class FeedingRecord(Base):
     __tablename__ = "feeding_records"
 
@@ -25,8 +30,14 @@ class FeedingRecord(Base):
     record_type: Mapped[RecordType] = mapped_column(
         Enum(RecordType), nullable=False, default=RecordType.milk
     )
-    amount_ml: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit: Mapped[Unit] = mapped_column(Enum(Unit), nullable=False, default=Unit.ml)
     period: Mapped[Period] = mapped_column(Enum(Period), nullable=False)
     fed_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False, index=True
     )
+
+    @property
+    def amount_ml(self) -> int:
+        """向后兼容：返回 ml 单位的数值（如果是 g 单位则返回 amount_value）"""
+        return self.amount_value

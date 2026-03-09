@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models import FeedingRecord, Period, RecordType
+from app.models import FeedingRecord, Period, RecordType, Unit
 from app.schemas import DuplicateResponse, FeedResponse, FeedingRecordOut, SolidFoodResponse
 from app.services.reports import get_today_records, get_today_all_records
 from app.services.wechat import send_daily_report
@@ -58,7 +58,8 @@ async def record_feeding(
     new_record = FeedingRecord(
         device_id=device_id,
         record_type=RecordType.milk,
-        amount_ml=amount_ml,
+        amount_value=amount_ml,
+        unit=Unit.ml,
         period=period,
         fed_at=now_naive,
     )
@@ -112,12 +113,13 @@ async def record_solid_food(
                 wait_seconds=max(wait_seconds, 0),
             )
 
-    # ── 写库（辅食不记奶量，amount_ml=0）─────────────────────────────────────
+    # ── 写库（辅食默认 0g，等待后台手动编辑）─────────────────────────────────────
     period = Period.night if _is_night(now_local) else Period.day
     new_record = FeedingRecord(
         device_id=device_id,
         record_type=RecordType.solid,
-        amount_ml=0,
+        amount_value=0,
+        unit=Unit.g,
         period=period,
         fed_at=now_naive,
     )

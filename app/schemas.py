@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
-from app.models import Period, RecordType
+from app.models import Period, RecordType, Unit
 
 
 # ── Request ────────────────────────────────────────────────────────────────────
@@ -24,9 +24,16 @@ class FeedingRecordOut(BaseModel):
     id: int
     device_id: str
     record_type: RecordType
-    amount_ml: int
+    amount_value: int
+    unit: Unit
     period: Period
     fed_at: datetime
+
+    # 向后兼容：保留 amount_ml 字段（自动包含在序列化输出中）
+    @computed_field
+    @property
+    def amount_ml(self) -> int:
+        return self.amount_value
 
     model_config = {"from_attributes": True}
 
@@ -69,7 +76,7 @@ class AdminOverview(BaseModel):
     recent_records: list[FeedingRecordOut]
 
 
-
+class TodayStats(BaseModel):
     date: str               # YYYY-MM-DD
     count: int
     total_ml: int
@@ -100,3 +107,30 @@ class MonthlyReport(BaseModel):
     total_ml: int
     avg_count: float
     avg_ml: float
+
+
+# ── Admin CRUD ─────────────────────────────────────────────────────────────────
+
+class AdminRecordsResponse(BaseModel):
+    """分页查询记录的响应"""
+    records: list[FeedingRecordOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class AdminCreateRecord(BaseModel):
+    device_id: str
+    record_type: RecordType
+    amount_value: int
+    unit: Unit
+    period: Period
+    fed_at: datetime          # 前端传本地时间字符串，如 "2025-01-15T14:30"
+
+
+class AdminUpdateRecord(BaseModel):
+    record_type: Optional[RecordType] = None
+    amount_value: Optional[int] = None
+    unit: Optional[Unit] = None
+    period: Optional[Period] = None
+    fed_at: Optional[datetime] = None

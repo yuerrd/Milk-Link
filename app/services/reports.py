@@ -216,3 +216,102 @@ async def get_month_records(db: AsyncSession) -> MonthlyReport:
         avg_count=round(total_count / num_days, 1),
         avg_ml=round(total_ml / num_days, 1),
     )
+
+
+async def get_records_filtered(
+    db: AsyncSession,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    device_id: str | None = None,
+    record_type: RecordType | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[FeedingRecordOut], int]:
+    """
+    根据筛选条件查询记录（支持分页）
+    
+    Args:
+        start_date: 开始日期 (YYYY-MM-DD)
+        end_date: 结束日期 (YYYY-MM-DD)
+        device_id: 设备ID筛选
+        record_type: 记录类型筛选 (milk/solid)
+        skip: 跳过记录数（分页）
+        limit: 返回记录数（分页）
+    
+    Returns:
+        (records, total_count) 元组
+    """
+    from datetime import datetime
+    
+    # 构建查询
+    query = select(FeedingRecord)
+    
+    # 日期范围筛选
+    if start_date:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=_TZ)
+        query = query.where(FeedingRecord.fed_at >= start_dt.replace(tzinfo=None))
+    
+    if end_date:
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=_TZ)
+        query = query.where(FeedingRecord.fed_at <= end_dt.replace(tzinfo=None))
+    
+    # 设备ID筛选
+    if device_id:
+        query = query.where(FeedingRecord.device_id == device_id)
+    
+    # 记录类型筛选
+    if record_type:
+        query = query.where(FeedingRecord.record_type == record_type)
+    
+    # 获取总数（分页前）
+    from sqlalchemy import func as sa_func
+    count_query = select(sa_func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total_count = total_result.scalar() or 0
+    
+    # 应用分页和排序
+    query = query.order_by(FeedingRecord.fed_at.desc()).offset(skip).limit(limit)
+    
+    # 执行查询
+    result = await db.execute(query)
+    records = result.scalars().all()
+    
+    return [FeedingRecordOut.model_validate(r) for r in records], total_count
+
+
+async def get_records_by_date(
+    db: AsyncSession,
+    date_str: str,
+    record_type: RecordType | None = None,
+) -> list[FeedingRecordOut]:
+    """
+    查询指定日期的所有记录
+    
+    Args:
+        date_str: 日期 (YYYY-MM-DD)
+        record_type: 可选的记录类型筛选
+    
+    Returns:
+        记录列表（按时间升序）
+    """
+    from datetime import datetime
+    
+    target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=_TZ)
+    day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    
+    query = select(FeedingRecord).where(
+        FeedingRecord.fed_at >= day_start.replace(tzinfo=None)
+    ).where(
+        FeedingRecord.fed_at < day_end.replace(tzinfo=None)
+    )
+    
+    if record_type:
+        query = query.where(FeedingRecord.record_type == record_type)
+    
+    query = query.order_by(FeedingRecord.fed_at.asc())
+    
+    result = await db.execute(query)
+    records = result.scalars().all()
+    
+    return [FeedingRecordOut.model_validate(r) for r in records]

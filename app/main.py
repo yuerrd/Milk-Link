@@ -1,23 +1,37 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Union
 
+# 配置日志：让 app.* 模块的 INFO 级别及以上日志输出到 stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+import secrets
+
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine, get_db, Base
 from app.schemas import (
+    AdminCreateRecord,
     AdminOverview,
+    AdminRecordsResponse,
+    AdminUpdateRecord,
     DeviceStatus,
     DailySummary,
     DuplicateResponse,
+    FeedingRecordOut,
     FeedRequest,
     FeedResponse,
     MonthlyReport,
@@ -26,9 +40,11 @@ from app.schemas import (
     TodayStats,
     WeeklyReport,
 )
+from app.models import RecordType
 from app.services import feeding as feeding_svc
 from app.services import mqtt as mqtt_svc
 from app.services import reports as report_svc
+from app.services import export as export_svc
 from app.services import wechat as wechat_svc
 
 # ── 定时任务 ──────────────────────────────────────────────────────────────────
@@ -202,10 +218,27 @@ async def health():
 # ── 管理后台 ───────────────────────────────────────────────────────────────────
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+_http_basic = HTTPBasic()
+
+
+def require_admin(credentials: Annotated[HTTPBasicCredentials, Depends(_http_basic)]) -> None:
+    """HTTP Basic Auth 验证管理后台访问权限。"""
+    ok_user = secrets.compare_digest(
+        credentials.username.encode(), settings.admin_username.encode()
+    )
+    ok_pass = secrets.compare_digest(
+        credentials.password.encode(), settings.admin_password.encode()
+    )
+    if not (ok_user and ok_pass):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 
 @app.get("/admin", include_in_schema=False)
-async def admin_page():
+async def admin_page(auth: Annotated[None, Depends(require_admin)]):
     """管理后台主页"""
     return FileResponse(os.path.join(_STATIC_DIR, "admin.html"))
 
@@ -216,7 +249,7 @@ async def admin_page():
     summary="管理后台 — 综合概览",
     include_in_schema=False,
 )
-async def admin_overview(db: SessionDep):
+async def admin_overview(db: SessionDep, auth: Annotated[None, Depends(require_admin)]):
     from zoneinfo import ZoneInfo
 
     now_local = datetime.now(ZoneInfo(settings.timezone))
@@ -230,18 +263,23 @@ async def admin_overview(db: SessionDep):
     # 构建设备状态列表
     device_ids_db = await report_svc.get_all_device_ids(db)
     mqtt_registry = mqtt_svc.get_device_registry()
-    # 合并：DB 中出现的 + MQTT 中出现的
-    all_device_ids = sorted(set(device_ids_db) | set(mqtt_registry.keys()))
-
-    # Both now_utc and _device_last_seen values are naive UTC datetimes
-    # (DB stores naive UTC, mqtt.py stores datetime.now(timezone.utc).replace(tzinfo=None))
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-    online_threshold = timedelta(minutes=5)
+    online_map    = mqtt_svc.get_device_online()   # LWT 驱动的精确在线状态
+    # 合并：DB 中出现的 + MQTT 中出现的 + 在线状态中出现的
+    all_device_ids = sorted(
+        set(device_ids_db) | set(mqtt_registry.keys()) | set(online_map.keys())
+    )
 
     devices: list[DeviceStatus] = []
     for dev_id in all_device_ids:
         last_seen = mqtt_registry.get(dev_id)
-        online = last_seen is not None and (now_utc - last_seen) < online_threshold
+        # 优先使用 LWT 状态；若设备从未发过 status 消息则降级到时间窗口（兼容旧固件）
+        if dev_id in online_map:
+            online = online_map[dev_id]
+        else:
+            from datetime import timedelta
+            online = last_seen is not None and (
+                datetime.now(timezone.utc).replace(tzinfo=None) - last_seen
+            ) < timedelta(minutes=5)
 
         last_rec = await report_svc.get_device_last_record(db, dev_id)
         last_record_at = last_rec.fed_at if last_rec else None
@@ -277,10 +315,191 @@ async def admin_overview(db: SessionDep):
 )
 async def admin_daily_stats(
     db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
     days: int = Query(default=7, ge=1, le=90),
 ):
     return await report_svc.get_daily_stats(db, days=days)
 
 
-# 挂载静态文件（CSS / JS 等，如有）
-app.mount("/admin/static", StaticFiles(directory=_STATIC_DIR), name="admin-static")
+# ── 管理后台 查询 API ──────────────────────────────────────────────────────────
+
+@app.get(
+    "/admin/api/records",
+    response_model=AdminRecordsResponse,
+    summary="管理后台 — 查询记录（支持筛选和分页）",
+    include_in_schema=False,
+)
+async def admin_list_records(
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+    start_date: str = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: str = Query(None, description="结束日期 YYYY-MM-DD"),
+    device_id: str = Query(None, description="设备ID筛选"),
+    record_type: RecordType = Query(None, description="记录类型筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(50, ge=1, le=200, description="每页条数"),
+):
+    """查询记录，支持日期范围、设备、类型筛选及分页"""
+    skip = (page - 1) * page_size
+    records, total = await report_svc.get_records_filtered(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        device_id=device_id,
+        record_type=record_type,
+        skip=skip,
+        limit=page_size,
+    )
+    return AdminRecordsResponse(
+        records=records,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@app.get(
+    "/admin/api/records/daily/{date}",
+    response_model=list[FeedingRecordOut],
+    summary="管理后台 — 查询指定日期的记录",
+    include_in_schema=False,
+)
+async def admin_daily_records(
+    date: str,
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+    record_type: RecordType = Query(None, description="记录类型筛选"),
+):
+    """查询指定日期的所有记录（YYYY-MM-DD）"""
+    return await report_svc.get_records_by_date(db, date, record_type)
+
+
+@app.get(
+    "/admin/api/records/export",
+    summary="管理后台 — 导出记录为 CSV",
+    include_in_schema=False,
+)
+async def admin_export_records(
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+    start_date: str = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: str = Query(None, description="结束日期 YYYY-MM-DD"),
+    device_id: str = Query(None, description="设备ID筛选"),
+    record_type: RecordType = Query(None, description="记录类型筛选"),
+):
+    """导出记录为 CSV 文件（支持筛选条件）"""
+    from fastapi.responses import StreamingResponse
+    
+    csv_content, filename = await export_svc.export_records_csv(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        device_id=device_id,
+        record_type=record_type,
+    )
+    
+    # 添加 BOM 以支持 Excel 正确显示中文
+    csv_bytes = "\ufeff" + csv_content
+    
+    return StreamingResponse(
+        iter([csv_bytes.encode("utf-8")]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+# ── 管理后台 CRUD ─────────────────────────────────────────────────────────────
+
+@app.post(
+    "/admin/api/records/create",
+    response_model=FeedingRecordOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="管理后台 — 手动添加喂养记录",
+    include_in_schema=False,
+)
+async def admin_create_record(
+    body: AdminCreateRecord,
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+):
+    from app.models import FeedingRecord as FeedingRecordModel
+
+    record = FeedingRecordModel(
+        device_id=body.device_id,
+        record_type=body.record_type,
+        amount_value=body.amount_value,
+        unit=body.unit,
+        period=body.period,
+        fed_at=body.fed_at,
+    )
+    db.add(record)
+    await db.flush()
+    await db.refresh(record)
+    await db.commit()
+    return FeedingRecordOut.model_validate(record)
+
+
+@app.put(
+    "/admin/api/records/{record_id}",
+    response_model=FeedingRecordOut,
+    summary="管理后台 — 修改喂养记录",
+    include_in_schema=False,
+)
+async def admin_update_record(
+    record_id: int,
+    body: AdminUpdateRecord,
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+):
+    from app.models import FeedingRecord as FeedingRecordModel
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(FeedingRecordModel).where(FeedingRecordModel.id == record_id)
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    if body.record_type is not None:
+        record.record_type = body.record_type
+    if body.amount_value is not None:
+        record.amount_value = body.amount_value
+    if body.unit is not None:
+        record.unit = body.unit
+    if body.period is not None:
+        record.period = body.period
+    if body.fed_at is not None:
+        record.fed_at = body.fed_at
+
+    await db.flush()
+    await db.refresh(record)
+    await db.commit()
+    return FeedingRecordOut.model_validate(record)
+
+
+@app.delete(
+    "/admin/api/records/{record_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="管理后台 — 删除喂养记录",
+    include_in_schema=False,
+)
+async def admin_delete_record(
+    record_id: int,
+    db: SessionDep,
+    auth: Annotated[None, Depends(require_admin)],
+):
+    from app.models import FeedingRecord as FeedingRecordModel
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(FeedingRecordModel).where(FeedingRecordModel.id == record_id)
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    await db.delete(record)
+    await db.commit()

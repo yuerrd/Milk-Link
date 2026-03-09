@@ -35,7 +35,7 @@ async def send_daily_report(all_records: list[FeedingRecordOut], today_str: str)
         return
 
     milk_records = [r for r in all_records if r.record_type == 'milk']
-    total_ml = sum(r.amount_ml for r in milk_records)
+    total_ml = sum(r.amount_value for r in milk_records if r.unit.value == 'ml')
     milk_count = len(milk_records)
 
     row_lines = []
@@ -50,12 +50,16 @@ async def send_daily_report(all_records: list[FeedingRecordOut], today_str: str)
             interval_str = f"间隔 {h}h{m:02d}m" if h > 0 else f"间隔 {m}m"
 
         if r.record_type == 'solid':
-            row_lines.append(f"> {time_str}　🥣 **辅食**　`{interval_str}`")
+            # 辅食记录：如果有数值则显示克数，否则只显示"辅食"
+            if r.amount_value > 0:
+                row_lines.append(f"> {time_str}　🥣 **辅食 {r.amount_value}{r.unit.value}**　`{interval_str}`")
+            else:
+                row_lines.append(f"> {time_str}　🥣 **辅食**　`{interval_str}`")
         else:
             period_str = '夜晚' if r.period == 'night' else '白天'
-            after_solid_tag = " `辅食后`" if (r.period == 'day' and r.amount_ml == 120) else ""
+            after_solid_tag = " `辅食后`" if (r.period == 'day' and r.amount_value == 120) else ""
             row_lines.append(
-                f"> {time_str}　🍼 **{r.amount_ml}ml**　({period_str}){after_solid_tag}　`{interval_str}`"
+                f"> {time_str}　🍼 **{r.amount_value}{r.unit.value}**　({period_str}){after_solid_tag}　`{interval_str}`"
             )
 
     rows = "\n".join(row_lines)

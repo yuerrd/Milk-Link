@@ -131,7 +131,7 @@
     <div class="col-lg-8">
       <div class="card h-100">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <span><i class="bi bi-bar-chart-fill me-1"></i>近 7 日喂奶趋势</span>
+          <span><i class="bi bi-bar-chart-fill me-1"></i><span id="chart-title">近 7 日</span>喂奶趋势</span>
           <div class="btn-group btn-group-sm" role="group">
             <button type="button" class="btn btn-outline-secondary active" id="chart-btn-7"  onclick="switchDays(7)">7天</button>
             <button type="button" class="btn btn-outline-secondary"        id="chart-btn-14" onclick="switchDays(14)">14天</button>
@@ -149,9 +149,51 @@
   <!-- ── Recent records ── -->
   <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="bi bi-list-ul me-1"></i>最近记录（最多 50 条）</span>
-      <span class="text-muted" style="font-size:.82rem;" id="record-count-label"></span>
+      <div class="d-flex align-items-center gap-3">
+        <span><i class="bi bi-list-ul me-1"></i>喂养记录</span>
+        <!-- Tab 切换按钮组 -->
+        <div class="btn-group btn-group-sm" role="group">
+          <button class="btn btn-outline-secondary active" id="tab-all" onclick="switchRecordType(null)">全部</button>
+          <button class="btn btn-outline-secondary" id="tab-milk" onclick="switchRecordType('milk')">🍼 喂奶</button>
+          <button class="btn btn-outline-secondary" id="tab-solid" onclick="switchRecordType('solid')">🥣 辅食</button>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-muted" style="font-size:.82rem;" id="record-count-label"></span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="toggleFilters()">
+          <i class="bi bi-funnel"></i> 筛选
+        </button>
+        <button class="btn btn-sm btn-outline-success" onclick="exportCSV()">
+          <i class="bi bi-download"></i> 导出
+        </button>
+        <button class="btn btn-sm btn-primary" onclick="openAddModal()">
+          <i class="bi bi-plus-lg me-1"></i>添加
+        </button>
+      </div>
     </div>
+    
+    <!-- 筛选面板 -->
+    <div id="filter-panel" class="card-body border-bottom bg-light" style="display:none;">
+      <div class="row g-2">
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">开始日期</label>
+          <input type="date" class="form-control form-control-sm" id="filter-start-date" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">结束日期</label>
+          <input type="date" class="form-control form-control-sm" id="filter-end-date" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">设备ID</label>
+          <input type="text" class="form-control form-control-sm" id="filter-device" placeholder="全部设备" />
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button class="btn btn-sm btn-primary me-2" onclick="applyFilters()">应用</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">重置</button>
+        </div>
+      </div>
+    </div>
+    
     <div class="card-body p-0" style="overflow-x:auto;">
       <table class="table table-hover mb-0">
         <thead class="table-light">
@@ -160,18 +202,102 @@
             <th>时间</th>
             <th>设备</th>
             <th>类型</th>
-            <th>奶量</th>
+            <th>数量</th>
             <th>时段</th>
+            <th style="width:100px;">操作</th>
           </tr>
         </thead>
         <tbody id="records-tbody">
-          <tr><td colspan="6" class="text-center text-muted py-3">加载中…</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-3">加载中…</td></tr>
         </tbody>
       </table>
+    </div>
+    
+    <!-- 分页 -->
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <div class="text-muted" style="font-size:.875rem;" id="pagination-info">共 0 条</div>
+      <nav id="pagination-nav" style="display:none;">
+        <ul class="pagination pagination-sm mb-0" id="pagination-list"></ul>
+      </nav>
     </div>
   </div>
 
 </div><!-- /container -->
+
+<!-- ── Record Modal ── -->
+<div class="modal fade" id="recordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="recordModalTitle">添加喂养记录</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="recordForm">
+          <input type="hidden" id="rf-id" />
+          <div class="mb-3">
+            <label for="rf-device" class="form-label">设备 ID</label>
+            <input type="text" class="form-control" id="rf-device" required placeholder="如 m5-dualkey-01" />
+          </div>
+          <div class="mb-3">
+            <label for="rf-type" class="form-label">类型</label>
+            <select class="form-select" id="rf-type" required>
+              <option value="milk">🍼 喂奶</option>
+              <option value="solid">🥣 辅食</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label for="rf-amount" class="form-label">数量</label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="rf-amount" min="0" value="180" required />
+              <select class="form-select" id="rf-unit" required style="max-width:80px;">
+                <option value="ml">ml</option>
+                <option value="g">g</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="rf-period" class="form-label">时段</label>
+            <select class="form-select" id="rf-period" required>
+              <option value="day">☀️ 日间</option>
+              <option value="night">🌙 夜间</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label for="rf-time" class="form-label">时间</label>
+            <input type="datetime-local" class="form-control" id="rf-time" required />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary" id="recordSaveBtn" onclick="saveRecord()">
+          <span class="spinner-border spinner-border-sm d-none" id="save-spinner"></span>
+          保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm Modal ── -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">确认删除</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>确定要删除记录 <strong id="delete-id"></strong> 吗？此操作不可撤销。</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-danger" onclick="confirmDelete()">删除</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- NOTE: add integrity="sha384-…" crossorigin="anonymous" attributes for production deployments -->
@@ -179,6 +305,14 @@
 // ── State ────────────────────────────────────────────────────────────────────
 let dailyChart = null;
 let currentDays = 7;
+let currentRecordType = null;  // null='全部', 'milk', 'solid'
+let currentPage = 1;
+let currentPageSize = 50;
+let currentFilters = {
+  startDate: null,
+  endDate: null,
+  deviceId: null,
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -196,9 +330,8 @@ function fmtTimeShort(iso) {
 }
 function timeSince(iso) {
   if (!iso) return null;
-  // Append 'Z' only if the string has no timezone offset (naive UTC from server)
-  const isoUtc = /[Z+\-]\d*$/.test(iso) ? iso : iso + 'Z';
-  const sec = Math.floor((Date.now() - new Date(isoUtc)) / 1000);
+  // 服务端返回本地时间（无时区后缀），浏览器直接解析为本地时间，不加 Z
+  const sec = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (sec < 60)   return sec + ' 秒前';
   if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
   if (sec < 86400)return Math.floor(sec / 3600) + ' 小时前';
@@ -217,9 +350,30 @@ function hideError() {
   document.getElementById('error-banner').classList.add('d-none');
 }
 
+// ── Base path（兼容 nginx sub-path，如 /milk/）────────────────────────────────
+// 当前页面 pathname 末尾补 '/'，让相对路径正确解析
+// 例：pathname=/milk/admin → BASE=/milk/admin/
+const BASE = window.location.pathname.replace(/\/?$/, '/');
+
+// ── Auth helper ─────────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const url = path.startsWith('/') ? path : BASE + path;
+  const fetchOpts = { credentials: 'same-origin', ...opts };
+  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+    fetchOpts.body = JSON.stringify(opts.body);
+    fetchOpts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  }
+  const r = await fetch(url, fetchOpts);
+  if (r.status === 401) {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;flex-direction:column;gap:1rem"><p style="font-size:1.2rem">会话已过期，请重新登录</p><button onclick="location.reload()" style="padding:.5rem 1.5rem;font-size:1rem;cursor:pointer">重新登录</button></div>';
+    throw new Error('401 Unauthorized');
+  }
+  return r;
+}
+
 // ── Overview ─────────────────────────────────────────────────────────────────
 async function loadOverview() {
-  const r = await fetch('/admin/api/overview');
+  const r = await apiFetch('api/overview');
   if (!r.ok) throw new Error(`overview: HTTP ${r.status}`);
   const data = await r.json();
 
@@ -237,8 +391,8 @@ async function loadOverview() {
   // Device table
   renderDevices(data.devices);
 
-  // Recent records
-  renderRecords(data.recent_records || []);
+  // Recent records - 使用新的分页查询
+  loadRecords();
 }
 
 // ── Device table ──────────────────────────────────────────────────────────────
@@ -268,36 +422,332 @@ function renderDevices(devices) {
     </tr>`;
   }).join('');
 }
+// ── Records loading & filtering ──────────────────────────────────────────────
+async function loadRecords() {
+  try {
+    // 构建查询参数
+    const params = new URLSearchParams({
+      page: currentPage,
+      page_size: currentPageSize,
+    });
+    
+    if (currentRecordType) params.append('record_type', currentRecordType);
+    if (currentFilters.startDate) params.append('start_date', currentFilters.startDate);
+    if (currentFilters.endDate) params.append('end_date', currentFilters.endDate);
+    if (currentFilters.deviceId) params.append('device_id', currentFilters.deviceId);
+    
+    const r = await apiFetch(`api/records?${params}`);
+    if (!r.ok) throw new Error(`records: HTTP ${r.status}`);
+    const data = await r.json();
+    
+    renderRecords(data.records, data.total);
+    renderPagination(data.page, data.page_size, data.total);
+  } catch (err) {
+    showError('加载记录失败：' + err.message);
+  }
+}
 
-// ── Records table ─────────────────────────────────────────────────────────────
-function renderRecords(records) {
-  document.getElementById('record-count-label').textContent = `共 ${records.length} 条`;
-  const tbody = document.getElementById('records-tbody');
-  if (!records.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">暂无记录</td></tr>';
+function switchRecordType(type) {
+  currentRecordType = type;
+  currentPage = 1; // 重置到第一页
+  
+  // 更新按钮状态
+  ['all', 'milk', 'solid'].forEach(t => {
+    const btn = document.getElementById(`tab-${t}`);
+    if (btn) {
+      btn.classList.toggle('active', 
+        (t === 'all' && type === null) || type === t
+      );
+    }
+  });
+  
+  loadRecords();
+}
+
+function toggleFilters() {
+  const panel = document.getElementById('filter-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function applyFilters() {
+  currentFilters.startDate = document.getElementById('filter-start-date').value || null;
+  currentFilters.endDate = document.getElementById('filter-end-date').value || null;
+  currentFilters.deviceId = document.getElementById('filter-device').value.trim() || null;
+  currentPage = 1; // 重置到第一页
+  loadRecords();
+}
+
+function resetFilters() {
+  document.getElementById('filter-start-date').value = '';
+  document.getElementById('filter-end-date').value = '';
+  document.getElementById('filter-device').value = '';
+  currentFilters = { startDate: null, endDate: null, deviceId: null };
+  currentPage = 1;
+  loadRecords();
+}
+
+function exportCSV() {
+  // 构建导出 URL（使用当前筛选条件）
+  const params = new URLSearchParams();
+  if (currentRecordType) params.append('record_type', currentRecordType);
+  if (currentFilters.startDate) params.append('start_date', currentFilters.startDate);
+  if (currentFilters.endDate) params.append('end_date', currentFilters.endDate);
+  if (currentFilters.deviceId) params.append('device_id', currentFilters.deviceId);
+  
+  const url = `${BASE}api/records/export?${params}`;
+  window.location.href = url;
+}
+
+function renderPagination(page, pageSize, total) {
+  const totalPages = Math.ceil(total / pageSize);
+  const info = document.getElementById('pagination-info');
+  const nav = document.getElementById('pagination-nav');
+  const list = document.getElementById('pagination-list');
+  
+  info.textContent = `共 ${total} 条`;
+  
+  if (totalPages <= 1) {
+    nav.style.display = 'none';
     return;
   }
-  tbody.innerHTML = records.map((r, i) => {
+  
+  nav.style.display = 'block';
+  
+  // 生成分页按钮
+  let html = '';
+  
+  // 上一页
+  html += `<li class="page-item ${page <= 1 ? 'disabled' : ''}">
+    <a class="page-link" href="#" onclick="changePage(${page - 1}); return false;">上一页</a>
+  </li>`;
+  
+  // 页码按钮（最多显示 7 个）
+  const maxButtons = 7;
+  let startPage = Math.max(1, page - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  
+  if (endPage - startPage + 1 < maxButtons) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+  
+  if (startPage > 1) {
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(1); return false;">1</a></li>`;
+    if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+  }
+  
+  for (let i = startPage; i <= endPage; i++) {
+    html += `<li class="page-item ${i === page ? 'active' : ''}">
+      <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
+    </li>`;
+  }
+  
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(${totalPages}); return false;">${totalPages}</a></li>`;
+  }
+  
+  // 下一页
+  html += `<li class="page-item ${page >= totalPages ? 'disabled' : ''}">
+    <a class="page-link" href="#" onclick="changePage(${page + 1}); return false;">下一页</a>
+  </li>`;
+  
+  list.innerHTML = html;
+}
+
+function changePage(page) {
+  if (page < 1) return;
+  currentPage = page;
+  loadRecords();
+  // 滚动到记录表格顶部
+  document.querySelector('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// ── Records table ─────────────────────────────────────────────────────────────
+let _cachedRecords = [];
+let _totalRecords = 0;
+
+function renderRecords(records, total = null) {
+  _cachedRecords = records;
+  if (total !== null) _totalRecords = total;
+  
+  // 应用类型筛选（Tab）
+  const filtered = currentRecordType 
+    ? records.filter(r => r.record_type === currentRecordType)
+    : records;
+  
+  document.getElementById('record-count-label').textContent = `共 ${total || records.length} 条`;
+  
+  const tbody = document.getElementById('records-tbody');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">暂无记录</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = filtered.map((r, i) => {
     const typeHtml = r.record_type === 'milk'
       ? '<span class="type-milk"><i class="bi bi-cup-hot-fill"></i> 喂奶</span>'
       : '<span class="type-solid"><i class="bi bi-bowl-hot-fill"></i> 辅食</span>';
     const period = r.period === 'night' ? '🌙 夜间' : '☀️ 日间';
-    const ml = r.amount_ml > 0 ? `<strong>${r.amount_ml}</strong> ml` : '<span class="text-muted">—</span>';
+    
+    // 根据 unit 字段显示数量和单位
+    let amountHtml;
+    if (r.amount_value > 0) {
+      amountHtml = `<strong>${r.amount_value}</strong> ${r.unit}`;
+    } else {
+      amountHtml = '<span class="text-muted">—</span>';
+    }
+    
     const rowClass = r.period === 'night' ? 'table-light' : '';
+    const originalIndex = records.indexOf(r); // 获取原始索引用于编辑
     return `<tr class="${rowClass}">
       <td class="ps-3 text-muted">${r.id}</td>
       <td>${fmtTime(r.fed_at)}</td>
       <td><code>${escHtml(r.device_id)}</code></td>
       <td>${typeHtml}</td>
-      <td>${ml}</td>
+      <td>${amountHtml}</td>
       <td><small>${period}</small></td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary py-0 px-1 me-1" title="编辑" onclick="openEditModal(${originalIndex})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-danger py-0 px-1" title="删除" onclick="openDeleteModal(${r.id})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
     </tr>`;
   }).join('');
 }
 
+// ── Tab switches & filters ────────────────────────────────────────────────────
+function switchRecordType(type) {
+  currentRecordType = type;
+  currentPage = 1; // 重置页码
+  
+  // 更新按钮状态
+  ['tab-all', 'tab-milk', 'tab-solid'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  const activeTabId = type === 'milk' ? 'tab-milk' : type === 'solid' ? 'tab-solid' : 'tab-all';
+  document.getElementById(activeTabId).classList.add('active');
+  
+  // 重新加载记录
+  loadRecords();
+}
+
+function toggleFilters() {
+  const panel = document.getElementById('filter-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function applyFilters() {
+  currentFilters.startDate = document.getElementById('filter-start-date').value || null;
+  currentFilters.endDate = document.getElementById('filter-end-date').value || null;
+  currentFilters.deviceId = document.getElementById('filter-device').value || null;
+  currentPage = 1; // 重置页码
+  loadRecords();
+}
+
+function resetFilters() {
+  document.getElementById('filter-start-date').value = '';
+  document.getElementById('filter-end-date').value = '';
+  document.getElementById('filter-device').value = '';
+  currentFilters = { startDate: null, endDate: null, deviceId: null };
+  currentPage = 1;
+  loadRecords();
+}
+
+async function loadRecords() {
+  try {
+    const params = new URLSearchParams({
+      page: currentPage,
+      page_size: currentPageSize,
+    });
+    
+    if (currentRecordType) params.append('record_type', currentRecordType);
+    if (currentFilters.startDate) params.append('start_date', currentFilters.startDate);
+    if (currentFilters.endDate) params.append('end_date', currentFilters.endDate);
+    if (currentFilters.deviceId) params.append('device_id', currentFilters.deviceId);
+    
+    const r = await apiFetch(`api/records?${params}`);
+    if (!r.ok) throw new Error(`load records: HTTP ${r.status}`);
+    const data = await r.json();
+    
+    renderRecords(data.records, data.total);
+    renderPagination(data.total, data.page, data.page_size);
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+function renderPagination(total, page, pageSize) {
+  const totalPages = Math.ceil(total / pageSize);
+  document.getElementById('pagination-info').textContent = `共 ${total} 条`;
+  
+  if (totalPages <= 1) {
+    document.getElementById('pagination-nav').style.display = 'none';
+    return;
+  }
+  
+  document.getElementById('pagination-nav').style.display = 'block';
+  const paginationList = document.getElementById('pagination-list');
+  
+  let html = '';
+  
+  // 上一页
+  html += `<li class="page-item ${page === 1 ? 'disabled' : ''}">
+    <a class="page-link" href="#" onclick="changePage(${page - 1}); return false;">&laquo;</a>
+  </li>`;
+  
+  // 页码
+  const maxVisible = 5;
+  let startPage = Math.max(1, page - Math.floor(maxVisible / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+  
+  if (endPage - startPage < maxVisible - 1) {
+    startPage = Math.max(1, endPage - maxVisible + 1);
+  }
+  
+  if (startPage > 1) {
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(1); return false;">1</a></li>`;
+    if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+  }
+  
+  for (let i = startPage; i <= endPage; i++) {
+    html += `<li class="page-item ${i === page ? 'active' : ''}">
+      <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
+    </li>`;
+  }
+  
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(${totalPages}); return false;">${totalPages}</a></li>`;
+  }
+  
+  // 下一页
+  html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}">
+    <a class="page-link" href="#" onclick="changePage(${page + 1}); return false;">&raquo;</a>
+  </li>`;
+  
+  paginationList.innerHTML = html;
+}
+
+function changePage(page) {
+  currentPage = page;
+  loadRecords();
+}
+
+function exportCSV() {
+  const params = new URLSearchParams();
+  if (currentRecordType) params.append('record_type', currentRecordType);
+  if (currentFilters.startDate) params.append('start_date', currentFilters.startDate);
+  if (currentFilters.endDate) params.append('end_date', currentFilters.endDate);
+  if (currentFilters.deviceId) params.append('device_id', currentFilters.deviceId);
+  
+  window.location.href = `${BASE}api/records/export?${params}`;
+}
+
 // ── Daily chart ───────────────────────────────────────────────────────────────
 async function loadDailyStats(days) {
-  const r = await fetch(`/admin/api/stats/daily?days=${days}`);
+  const r = await apiFetch(`api/stats/daily?days=${days}`);
   if (!r.ok) throw new Error(`daily stats: HTTP ${r.status}`);
   const data = await r.json();
   renderChart(data);
@@ -376,6 +826,7 @@ function switchDays(days) {
   [7, 14, 30].forEach(d => {
     document.getElementById(`chart-btn-${d}`).classList.toggle('active', d === days);
   });
+  setText('chart-title', `近 ${days} 日`);
   loadDailyStats(days).catch(err => showError(err.message));
 }
 
@@ -387,6 +838,134 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ── Record CRUD ──────────────────────────────────────────────────────────────
+let _editingId = null;
+let _deleteId  = null;
+let _recordModal = null;
+let _deleteModal = null;
+
+function getRecordModal()  { return _recordModal || (_recordModal = new bootstrap.Modal(document.getElementById('recordModal'))); }
+function getDeleteModal()  { return _deleteModal || (_deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'))); }
+
+function _nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function openAddModal() {
+  _editingId = null;
+  document.getElementById('recordModalTitle').textContent = '添加喂养记录';
+  document.getElementById('rf-id').value = '';
+  document.getElementById('rf-device').value = '';
+  document.getElementById('rf-device').disabled = false;
+  document.getElementById('rf-type').value = 'milk';
+  document.getElementById('rf-amount').value = 180;
+  document.getElementById('rf-unit').value = 'ml';
+  document.getElementById('rf-period').value = 'day';
+  document.getElementById('rf-time').value = _nowLocal();
+  getRecordModal().show();
+}
+
+function openEditModal(idx) {
+  const r = _cachedRecords[idx];
+  if (!r) return;
+  _editingId = r.id;
+  document.getElementById('recordModalTitle').textContent = '编辑喂养记录 #' + r.id;
+  document.getElementById('rf-id').value = r.id;
+  document.getElementById('rf-device').value = r.device_id;
+  document.getElementById('rf-device').disabled = true;  // 不允许改设备
+  document.getElementById('rf-type').value = r.record_type;
+  document.getElementById('rf-amount').value = r.amount_value;
+  document.getElementById('rf-unit').value = r.unit;
+  document.getElementById('rf-period').value = r.period;
+  // fed_at from server is local naive time
+  const dt = new Date(r.fed_at);
+  dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+  document.getElementById('rf-time').value = dt.toISOString().slice(0, 16);
+  getRecordModal().show();
+}
+
+async function saveRecord() {
+  const form = document.getElementById('recordForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+
+  const spinner = document.getElementById('save-spinner');
+  const btn = document.getElementById('recordSaveBtn');
+  spinner.classList.remove('d-none');
+  btn.disabled = true;
+
+  try {
+    const body = {
+      device_id: document.getElementById('rf-device').value.trim(),
+      record_type: document.getElementById('rf-type').value,
+      amount_value: parseInt(document.getElementById('rf-amount').value),
+      unit: document.getElementById('rf-unit').value,
+      period: document.getElementById('rf-period').value,
+      fed_at: document.getElementById('rf-time').value + ':00',
+    };
+
+    let r;
+    if (_editingId) {
+      r = await apiFetch(`api/records/${_editingId}`, { method: 'PUT', body });
+    } else {
+      r = await apiFetch('api/records/create', { method: 'POST', body });
+    }
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+
+    getRecordModal().hide();
+    await loadAll();
+  } catch (err) {
+    showError('保存失败：' + err.message);
+  } finally {
+    spinner.classList.add('d-none');
+    btn.disabled = false;
+  }
+}
+
+function openDeleteModal(id) {
+  _deleteId = id;
+  document.getElementById('delete-id').textContent = '#' + id;
+  getDeleteModal().show();
+}
+
+async function confirmDelete() {
+  if (!_deleteId) return;
+  try {
+    const r = await apiFetch(`api/records/${_deleteId}`, { method: 'DELETE' });
+    if (!r.ok && r.status !== 204) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    getDeleteModal().hide();
+    await loadAll();
+  } catch (err) {
+    showError('删除失败：' + err.message);
+  }
+}
+
+// 类型切换时自动调整数量和单位
+document.getElementById('rf-type').addEventListener('change', function() {
+  const amountEl = document.getElementById('rf-amount');
+  const unitEl = document.getElementById('rf-unit');
+  
+  if (this.value === 'solid') {
+    // 切换到辅食：设为 0g
+    amountEl.value = 0;
+    unitEl.value = 'g';
+  } else {
+    // 切换到喂奶：恢复默认值 180ml
+    if (amountEl.value === '0') {
+      amountEl.value = 180;
+    }
+    unitEl.value = 'ml';
+  }
+});
 
 // ── Main load ────────────────────────────────────────────────────────────────
 async function loadAll() {

@@ -30,12 +30,18 @@ class Settings(BaseSettings):
     # 调试模式：True 时跳过所有企业微信推送
     debug_no_push: bool = False
 
+    # 管理后台认证
+    admin_username: str = "admin"
+    admin_password: str = "change-me"
+
     # MQTT Broker（设备通过 MQTT 上报喂奶事件）
     mqtt_broker_host: str = "localhost"
     mqtt_broker_port: int = 1883
     mqtt_username: str = ""
     mqtt_password: str = ""
     mqtt_topic_prefix: str = "milk-link"
+    mqtt_retry_initial_sec: int = 5
+    mqtt_retry_max_sec: int = 60
 
     @property
     def night_amount_ml(self) -> int:

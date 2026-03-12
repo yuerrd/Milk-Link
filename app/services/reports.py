@@ -132,7 +132,7 @@ async def get_device_last_record(
     return result.scalar_one_or_none()
 
 
-
+async def get_week_records(db: AsyncSession) -> WeeklyReport:
     """统计上周一到上周日（最新完整周）"""
     today = date.today()
     # 最近一个完整周：上周一 ~ 上周日

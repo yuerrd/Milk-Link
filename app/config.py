@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     @property
     def night_amount_ml(self) -> int:
-        return 120
+        return 90
 
     @property
     def day_amount_ml(self) -> int:

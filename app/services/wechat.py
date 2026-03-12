@@ -67,7 +67,7 @@ async def send_daily_report(all_records: list[FeedingRecordOut], today_str: str)
         f"## 🍼 今日喂养记录（{today_str}）\n"
         f"> 喂奶 **{milk_count}** 次　总量 **{total_ml}ml**\n\n"
         f"{rows}\n\n"
-        f"> 💡 白天 160ml / 夜晚 120ml / 辅食后 120ml"
+        f"> 💡 白天 160ml / 夜晚 90ml / 辅食后 120ml"
     )
     await _post_markdown(content)
 
